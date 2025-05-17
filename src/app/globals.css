@@ -24,3 +24,58 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Terminal styling for the simplified version */
+.terminal-container {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Make scrollbars more visible in dark mode */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.2);
+}
+
+/* Fix terminal display issues */
+.terminal-container .xterm {
+  height: 100% !important;
+  width: 100% !important;
+  padding: 0;
+}
+
+.terminal-container .xterm-viewport {
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+}
+
+.terminal-container .xterm-screen {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* Force terminal to show first line at the top */
+.terminal-container .xterm-viewport {
+  top: 0 !important;
+}
