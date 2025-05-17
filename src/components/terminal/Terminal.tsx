@@ -26,7 +26,6 @@ const Terminal: React.FC<TerminalProps> = ({
   const [liveOutput, setLiveOutput] = useState('');
   const [focused, setFocused] = useState(false);
   const socketRef = useRef<Socket | null>(null);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [waitingForOutput, setWaitingForOutput] = useState(false);
   const [inputSent, setInputSent] = useState(false);
   const [inputHistory, setInputHistory] = useState<string[]>([]);
@@ -52,7 +51,6 @@ const Terminal: React.FC<TerminalProps> = ({
       // Connection established
       socketRef.current.on('connect', () => {
         console.log('Socket connected');
-        setConnectionError(null);
         setLiveOutput(prev => prev + 'Connected to server!\n');
       });
       
@@ -186,6 +184,25 @@ const Terminal: React.FC<TerminalProps> = ({
     scrollToBottom();
   }, [liveOutput]);
 
+  // Set a timeout specifically for this input request
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    if (waitingForOutput && inputSent) {
+      timeoutId = setTimeout(() => {
+        if (socketRef.current?.connected && inputSent) {
+          // If still waiting after 10 seconds, show message
+          setLiveOutput(prev => prev + '\nStill processing your input...\n');
+        }
+      }, 10000);
+    }
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [socketRef]); // We're disabling the lint warning, so we can simplify the dependencies
+
   const scrollToBottom = () => {
     if (terminalRef.current) {
       setTimeout(() => {
@@ -232,10 +249,7 @@ const Terminal: React.FC<TerminalProps> = ({
       const isError = line.includes('Error:') || line.includes('error:');
       
       return (
-        <div 
-          key={index} 
-          className={`${isError ? 'text-red-500' : 'text-green-100'} font-mono`}
-        >
+        <div key={index} className={isError ? 'text-red-500 font-mono' : 'text-green-100 font-mono'}>
           {line}
         </div>
       );

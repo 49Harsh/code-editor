@@ -7,7 +7,6 @@ import LearningResourcesPanel from '@/components/LearningResourcesPanel';
 import CodeExplanationPanel from '@/components/CodeExplanationPanel';
 import executionService from '@/services/executionService';
 import {
-  availableLanguages,
   defaultLanguage,
   getTemplateForLanguage,
 } from '@/utils/codeTemplates';
@@ -103,8 +102,8 @@ export default function Home() {
     }
   };
 
-  // Handle terminal input
-  const handleTerminalInput = (userInput: string) => {
+  // Handle terminal input - remove unused parameter
+  const handleTerminalInput = () => {
     // This is now handled directly by the terminal component
   };
 
@@ -132,6 +131,16 @@ export default function Home() {
           </h1>
           
           <div className="flex items-center space-x-4">
+            {/* Language Selector */}
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="bg-white text-gray-800 rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+            >
+              <option value="python">Python</option>
+              <option value="javascript">JavaScript</option>
+            </select>
+            
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
@@ -229,21 +238,6 @@ export default function Home() {
                 </div>
               </div>
             )}
-
-            {/* Warning for non-interactive mode */}
-            {/* {!useInteractive && codeRequiresInput(code) && (
-              <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 rounded-md border border-yellow-300">
-                <div className="flex items-start">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                  <div>
-                    <p className="font-medium">Warning: Your code needs input but interactive mode is off</p>
-                    <p className="text-sm mt-1">Please enable interactive mode to allow input in your code.</p>
-                  </div>
-                </div>
-              </div>
-            )} */}
 
             <div className="mt-4 terminal-wrapper">
               <div className="flex justify-between items-center mb-2">

@@ -1,12 +1,12 @@
-const express = require('express');
-const { exec, spawn } = require('child_process');
-const cors = require('cors');
-const path = require('path');
-const fs = require('fs').promises;
-const bodyParser = require('body-parser');
-const { v4: uuidv4 } = require('uuid');
-const http = require('http');
-const { Server } = require('socket.io');
+import express from 'express';
+import { exec, spawn } from 'child_process';
+import cors from 'cors';
+import path from 'path';
+import { promises as fs } from 'fs';
+import bodyParser from 'body-parser';
+import { v4 as uuidv4 } from 'uuid';
+import http from 'http';
+import { Server } from 'socket.io';
 
 const app = express();
 // Enhanced CORS configuration for production
@@ -34,7 +34,7 @@ const io = new Server(server, {
 const activeSessions = new Map();
 
 // Directory for temporary code files
-let TEMP_DIR = path.join(__dirname, 'temp');
+let TEMP_DIR = path.join(process.cwd(), 'temp');
 
 // Track if Docker is available
 let isDockerAvailable = false;
@@ -58,7 +58,7 @@ let isDockerAvailable = false;
     }
     
     // Check if Docker is available with a simple command that actually tries to run a container
-    exec('docker run --rm hello-world', (error, stdout, stderr) => {
+    exec('docker run --rm hello-world', (error) => {
       if (error) {
         console.log('Docker is not available or not working properly:', error.message);
         isDockerAvailable = false;
@@ -270,7 +270,6 @@ function killDockerProcess(session) {
 
 // Execute code with direct execution (no Docker)
 const executeDirectly = async (language, filepath, inputPath, runCallback) => {
-  const filename = path.basename(filepath);
   let cmd, args;
   let timeout = 50000; // Default timeout 50 seconds
   
@@ -646,13 +645,11 @@ app.post('/api/execute', async (req, res) => {
         
         // Flag to detect early Docker failure
         let dockerFailed = false;
-        let errorMessage = '';
         
         // Handle Docker errors that might occur during startup
         dockerProcess.on('error', (error) => {
           console.error(`Docker process error for ${sessionId}:`, error);
           dockerFailed = true;
-          errorMessage = error.message;
           
           // Clean up
           activeSessions.delete(sessionId);
@@ -679,7 +676,6 @@ app.post('/api/execute', async (req, res) => {
           if (errorOutput.includes('error during connect') || 
               errorOutput.includes('Cannot connect to the Docker daemon')) {
             dockerFailed = true;
-            errorMessage = errorOutput;
           }
           
           // Send to client if socket is connected
