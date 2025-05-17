@@ -1,25 +1,25 @@
 // Code templates for different programming languages
 export const codeTemplates: Record<string, string> = {
-  python: `# Simple Python program with input
-# This program asks for your name and greets you
+  python: `# Simple Python program with functions and input
+# This program demonstrates a simple function and user input
 
-# Print a welcome message
-print("Welcome to Python CodeLab!")
+# Define a simple function
+def greet():
+    print("Hi, you are a good guy!")
+
+# Call the function
+greet()
+
+# --- Example of getting user input ---
+# NOTE: To run code with input, enable Interactive Mode above!
+
+print("\\nIf you want to use input, enable Interactive Mode first!")
+print("Then run the code below:")
 print("------------------------")
 
-# Ask for user input
-print("What is your name?")
-name = input()
-
-# Display a greeting
-print(f"Hello {name}, nice to meet you!")
-
-# Do a simple calculation 
-print("Let me show you a calculation.")
-print(f"The sum of the first 10 numbers is: {sum(range(1, 11))}")
-
-# End of program
-print("Thanks for trying Python!")
+# print("What is your name?")
+# name = input()
+# print(f"Hello {name}, nice to meet you!")
 `
 };
 

@@ -25,7 +25,7 @@ export default function Home() {
   
   // State for UI
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [useInteractive, setUseInteractive] = useState(true);
+  const [useInteractive, setUseInteractive] = useState(false);
 
   // Helper function to check if code requires input
   const codeRequiresInput = (code: string): boolean => {
@@ -177,6 +177,19 @@ export default function Home() {
               />
             </div>
 
+            {/* Interactive Mode Hint (Always visible) */}
+            <div className="mb-4 p-3 bg-blue-100 text-blue-800 rounded-md border border-blue-300">
+              <div className="flex items-start">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="font-medium">Interactive Mode Tip:</p>
+                  <p className="text-sm">If your code uses the input() function, remember to enable Interactive Mode before running your code.</p>
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-between items-center mb-2">
               <button
                 onClick={handleRunCode}
@@ -218,7 +231,7 @@ export default function Home() {
             )}
 
             {/* Warning for non-interactive mode */}
-            {!useInteractive && codeRequiresInput(code) && (
+            {/* {!useInteractive && codeRequiresInput(code) && (
               <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 rounded-md border border-yellow-300">
                 <div className="flex items-start">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
@@ -230,7 +243,7 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            )}
+            )} */}
 
             <div className="mt-4 terminal-wrapper">
               <div className="flex justify-between items-center mb-2">
