@@ -20,11 +20,13 @@ print("The sum is:", result)
 `,
 
   javascript: `// Welcome to JavaScript Programming!
-// This is a simple program that prints messages to the console
+// This is a simple program that demonstrates both output and input
 
-console.log("Hello, World! Welcome to CodeLab!");
+// NOTE: Before running this code, make sure to:
+// 1. Enable Interactive Mode above
+// 2. Enter your name when prompted in the terminal below
 
-// Let's do some simple math
+// First, let's do some simple calculations
 const num1 = 10;
 const num2 = 5;
 console.log(num1 + " + " + num2 + " = " + (num1 + num2));
@@ -32,15 +34,31 @@ console.log(num1 + " - " + num2 + " = " + (num1 - num2));
 console.log(num1 + " * " + num2 + " = " + (num1 * num2));
 console.log(num1 + " / " + num2 + " = " + (num1 / num2));
 
-// Try using a function
-function greetUser(name) {
-  return "Hello, " + name + "! Nice to meet you.";
-}
+// Now let's get input from the user
+// This uses the Node.js readline module to get input
+const readline = require('readline').createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
 
-// You can get user input in the terminal below
-// For now, we'll use a default name
-const greeting = greetUser("Coder");
-console.log(greeting);`
+// Ask for the user's name
+console.log("Let's get to know you!");
+readline.question('What is your name? ', (name) => {
+  console.log(\`Hello, \${name}! Nice to meet you.\`);
+  
+  // Ask for their age
+  readline.question('How old are you? ', (age) => {
+    console.log(\`Wow, \${age} years old! That's great!\`);
+    
+    // Calculate birth year (approximate)
+    const currentYear = new Date().getFullYear();
+    const birthYear = currentYear - parseInt(age);
+    console.log(\`You were born around \${birthYear}.\`);
+    
+    // Close the readline interface
+    readline.close();
+  });
+});`
 };
 
 // Default language to show when the app loads

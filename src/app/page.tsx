@@ -21,13 +21,24 @@ export default function Home() {
   // State for terminal
   const [output, setOutput] = useState('');
   const [isRunning, setIsRunning] = useState(false);
-  const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   
   // State for UI
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [inputVisible, setInputVisible] = useState(false);
   const [useInteractive, setUseInteractive] = useState(true);
+
+  // Helper function to check if code requires input
+  const codeRequiresInput = (code: string): boolean => {
+    // Check for Python input function
+    const hasPythonInput = code.includes('input(');
+    
+    // Check for JavaScript readline usage patterns
+    const hasJsReadline = code.includes('readline.question') || 
+                          code.includes('createInterface') && 
+                          code.includes('process.stdin');
+                          
+    return hasPythonInput || hasJsReadline;
+  };
 
   // Update code when language changes
   useEffect(() => {
@@ -52,11 +63,9 @@ export default function Home() {
     setSessionId(undefined);
     
     try {
-      const userInput = inputVisible ? input : '';
-      
       // Use interactive mode if enabled
       if (useInteractive) {
-        const result = await executionService.executeCode(code, language, userInput, true);
+        const result = await executionService.executeCode(code, language, '', true);
         
         if (result.success && result.sessionId) {
           setSessionId(result.sessionId);
@@ -67,7 +76,7 @@ export default function Home() {
       } 
       // Use regular mode
       else {
-        const result = await executionService.executeCode(code, language, userInput, false);
+        const result = await executionService.executeCode(code, language, '', false);
         
         let formattedOutput = '';
         
@@ -103,7 +112,7 @@ export default function Home() {
 
   // Handle terminal input
   const handleTerminalInput = (userInput: string) => {
-    setInput(userInput);
+    // This is now handled directly by the terminal component
   };
 
   // Handle theme toggle
@@ -217,65 +226,35 @@ export default function Home() {
                     Interactive Mode
                   </span>
                 </label>
-                
-                {!useInteractive && (
-                  <label htmlFor="show-input" className="flex items-center">
-                    <input
-                      id="show-input"
-                      type="checkbox"
-                      checked={inputVisible}
-                      onChange={() => setInputVisible(!inputVisible)}
-                      className="mr-2"
-                    />
-                    <span className={`${theme === 'vs-dark' ? 'text-white' : 'text-gray-900'}`}>
-                      Enable Input
-                    </span>
-                  </label>
-                )}
               </div>
             </div>
 
-            {/* Input area warning */}
-            {!inputVisible && language === 'python' && code.includes('input(') && (
+            {/* Input guidance for interactive mode */}
+            {useInteractive && codeRequiresInput(code) && (
+              <div className="mb-4 p-3 bg-blue-100 text-blue-800 rounded-md border border-blue-300">
+                <div className="flex items-start">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="font-medium">Your code asks for user input. Enter values directly in the terminal when prompted.</p>
+                    <p className="text-sm mt-1">After running your code, click in the terminal window and type your input when prompted, then press Enter.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Warning for non-interactive mode */}
+            {!useInteractive && codeRequiresInput(code) && (
               <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 rounded-md border border-yellow-300">
                 <div className="flex items-start">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                   </svg>
                   <div>
-                    <p className="font-medium">Warning: Your code uses input() but input is disabled</p>
-                    <p className="text-sm mt-1">Please enable the input checkbox above and provide values for each input() call in your code.</p>
+                    <p className="font-medium">Warning: Your code asks for user input but interactive mode is disabled</p>
+                    <p className="text-sm mt-1">Please enable interactive mode to properly handle input in your code.</p>
                   </div>
-                </div>
-              </div>
-            )}
-
-            {inputVisible && (
-              <div className="mb-4">
-                <div className="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Program Input:
-                </div>
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Enter input for your program (values that would normally be read by input() or similar functions)"
-                  className={`w-full p-3 rounded-md ${
-                    theme === 'vs-dark' 
-                      ? 'bg-gray-800 text-white border-gray-700' 
-                      : 'bg-white text-gray-900 border-gray-300'
-                  } border focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                  rows={3}
-                ></textarea>
-                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Input values should be separated by line breaks (Enter) as if you were typing them when prompted.
-                  {language === 'python' && (
-                    <div className="mt-2 p-2 bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-200 rounded border border-blue-200 dark:border-blue-800">
-                      <strong>Python Example:</strong> If your code has two input() calls, enter two values separated by line breaks:
-                      <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
-                        John{'\n'}25
-                      </pre>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -297,9 +276,8 @@ export default function Home() {
               </div>
               <Terminal 
                 output={output} 
-                input={input}
-                onInput={handleTerminalInput}
                 isRunning={isRunning}
+                onInput={handleTerminalInput}
                 sessionId={sessionId}
                 onSessionEnd={handleSessionEnd}
               />

@@ -6,7 +6,6 @@ import { Socket, io } from 'socket.io-client';
 
 interface TerminalProps {
   output: string;
-  input?: string;
   onInput?: (input: string) => void;
   isRunning: boolean;
   sessionId?: string;
@@ -15,16 +14,17 @@ interface TerminalProps {
 
 const Terminal: React.FC<TerminalProps> = ({ 
   output, 
-  input = '', 
   onInput, 
   isRunning,
   sessionId,
   onSessionEnd
 }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState('');
   const [lastOutput, setLastOutput] = useState('');
   const [liveOutput, setLiveOutput] = useState('');
+  const [focused, setFocused] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   
   // Initialize socket connection when sessionId changes
@@ -38,6 +38,19 @@ const Terminal: React.FC<TerminalProps> = ({
       // Listen for real-time output from the container
       socketRef.current.on('output', (data: string) => {
         setLiveOutput(prev => prev + data);
+        
+        // Auto-focus input when output suggests input is needed
+        if (data.includes('?') || 
+            data.toLowerCase().includes('enter') || 
+            data.toLowerCase().includes('input') ||
+            data.includes('readline.question') ||
+            data.includes('What is your name') ||
+            data.includes('How old are you')
+        ) {
+          setTimeout(() => {
+            inputRef.current?.focus();
+          }, 100);
+        }
       });
       
       // Listen for process exit
@@ -83,22 +96,24 @@ const Terminal: React.FC<TerminalProps> = ({
       setLiveOutput(''); // Reset live output when new execution starts
       
       // Scroll to bottom when content changes
-      if (terminalRef.current) {
-        setTimeout(() => {
-          if (terminalRef.current) {
-            terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-          }
-        }, 10);
-      }
+      scrollToBottom();
     }
   }, [output, lastOutput]);
   
   // Also scroll when liveOutput updates
   useEffect(() => {
-    if (terminalRef.current) {
-      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-    }
+    scrollToBottom();
   }, [liveOutput]);
+
+  const scrollToBottom = () => {
+    if (terminalRef.current) {
+      setTimeout(() => {
+        if (terminalRef.current) {
+          terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+        }
+      }, 10);
+    }
+  };
 
   // Process and format the output for display
   const formatOutput = () => {
@@ -147,8 +162,20 @@ const Terminal: React.FC<TerminalProps> = ({
     });
   };
 
+  // Focus input when terminal is clicked
+  const handleTerminalClick = () => {
+    if (isRunning && (socketRef.current?.connected || sessionId)) {
+      inputRef.current?.focus();
+    }
+  };
+
   return (
-    <div className="flex flex-col h-[300px] border border-gray-700 rounded-md overflow-hidden bg-[#1e1e1e]">
+    <div 
+      className={`flex flex-col h-[300px] sm:h-[350px] md:h-[400px] border ${
+        focused ? 'border-blue-500' : 'border-gray-700'
+      } rounded-md overflow-hidden bg-[#1e1e1e] transition-all duration-200`}
+      onClick={handleTerminalClick}
+    >
       {/* Terminal output */}
       <div 
         ref={terminalRef}
@@ -163,18 +190,24 @@ const Terminal: React.FC<TerminalProps> = ({
       </div>
       
       {/* Input area - shown if onInput is provided or if we have a socket connection */}
-      {(onInput || socketRef.current) && (
-        <form onSubmit={handleInputSubmit} className="flex border-t border-gray-700">
-          <span className="p-2 text-green-400 font-mono">{'>'}</span>
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            className="flex-1 bg-transparent text-white p-2 outline-none font-mono"
-            placeholder="Type input here and press Enter"
-            disabled={isRunning && !socketRef.current?.connected}
-          />
-        </form>
+      {(onInput || socketRef.current) && isRunning && (
+        <div className={`relative border-t ${focused ? 'border-blue-500' : 'border-gray-700'}`}>
+          {focused && <div className="absolute -top-3 left-2 bg-blue-500 text-xs text-white px-2 py-0.5 rounded-full">Input Here</div>}
+          <form onSubmit={handleInputSubmit} className="flex">
+            <span className="p-2 text-green-400 font-mono">{'>'}</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              className="flex-1 bg-transparent text-white p-2 outline-none font-mono"
+              placeholder="Type input here and press Enter"
+              disabled={!isRunning || !(socketRef.current?.connected || sessionId)}
+            />
+          </form>
+        </div>
       )}
     </div>
   );

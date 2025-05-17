@@ -32,23 +32,32 @@ let TEMP_DIR = path.join(__dirname, 'temp');
 // Track if Docker is available
 let isDockerAvailable = false;
 
-// Create temp directory if it doesn't exist
+// Check if Docker is available and working
 (async () => {
   try {
+    console.log('Checking Docker availability...');
+    // First create temp directory if needed
     await fs.mkdir(TEMP_DIR, { recursive: true });
     console.log('Temporary directory created at:', TEMP_DIR);
     
-    // Verify it exists and is writable
-    await fs.access(TEMP_DIR, fs.constants.W_OK);
-    console.log('Temporary directory is writable');
-
-    // Check if Docker is available
-    exec('docker --version', (error, stdout) => {
+    // Check if directory is writable
+    try {
+      const testFile = path.join(TEMP_DIR, 'test-write.txt');
+      await fs.writeFile(testFile, 'test');
+      await fs.unlink(testFile);
+      console.log('Temporary directory is writable');
+    } catch (err) {
+      console.error('Temporary directory is not writable:', err);
+    }
+    
+    // Check if Docker is available with a simple command that actually tries to run a container
+    exec('docker run --rm hello-world', (error, stdout, stderr) => {
       if (error) {
-        console.log('Docker is not available:', error.message);
+        console.log('Docker is not available or not working properly:', error.message);
         isDockerAvailable = false;
+        console.log('Falling back to direct execution mode');
       } else {
-        console.log('Docker is available:', stdout.trim());
+        console.log('Docker is available and working properly');
         isDockerAvailable = true;
       }
     });
@@ -523,6 +532,20 @@ app.post('/api/execute', async (req, res) => {
           socket: null // Will be set when client connects
         });
         
+        // Flag to detect early Docker failure
+        let dockerFailed = false;
+        let errorMessage = '';
+        
+        // Handle Docker errors that might occur during startup
+        dockerProcess.on('error', (error) => {
+          console.error(`Docker process error for ${sessionId}:`, error);
+          dockerFailed = true;
+          errorMessage = error.message;
+          
+          // Clean up
+          activeSessions.delete(sessionId);
+        });
+        
         // Handle output
         dockerProcess.stdout.on('data', (data) => {
           const output = data.toString();
@@ -535,35 +558,22 @@ app.post('/api/execute', async (req, res) => {
           }
         });
         
+        // Handle error output and detect Docker startup issues
         dockerProcess.stderr.on('data', (data) => {
           const errorOutput = data.toString();
           console.error(`stderr from ${sessionId}:`, errorOutput);
+          
+          // Check for Docker connection errors
+          if (errorOutput.includes('error during connect') || 
+              errorOutput.includes('Cannot connect to the Docker daemon')) {
+            dockerFailed = true;
+            errorMessage = errorOutput;
+          }
           
           // Send to client if socket is connected
           const session = activeSessions.get(sessionId);
           if (session && session.socket) {
             session.socket.emit('output', errorOutput);
-          }
-        });
-        
-        // Handle errors
-        dockerProcess.on('error', (error) => {
-          console.error(`Error with Docker process ${sessionId}:`, error);
-          
-          // Send to client if socket is connected
-          const session = activeSessions.get(sessionId);
-          if (session && session.socket) {
-            session.socket.emit('output', `\nError: Docker execution failed - ${error.message}\n`);
-            session.socket.emit('exit', { code: -1 });
-          }
-          
-          // Clean up session
-          activeSessions.delete(sessionId);
-          
-          // Clean up temp files
-          fs.unlink(filepath).catch(err => console.error('Error deleting file:', err));
-          if (inputPath) {
-            fs.unlink(inputPath).catch(err => console.error('Error deleting input file:', err));
           }
         });
         
@@ -577,24 +587,83 @@ app.post('/api/execute', async (req, res) => {
             session.socket.emit('exit', { code });
           }
           
-          // Clean up after delay to allow final output to be sent
-          setTimeout(() => {
-            activeSessions.delete(sessionId);
+          // If Docker failed early, fall back to direct execution
+          if (dockerFailed && code !== 0) {
+            console.log(`Docker failed for ${sessionId}, falling back to direct execution`);
             
-            // Clean up temp files
+            // Fall back to direct execution for this session
+            const fallbackProcess = spawn(
+              language === 'python' ? 'python' : 
+              language === 'javascript' ? 'node' : 'echo',
+              [filepath],
+              { stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            
+            // Update session with new process
+            const session = activeSessions.get(sessionId);
+            if (session) {
+              session.dockerProcess = fallbackProcess;
+              
+              // Connect existing socket if available
+              if (session.socket) {
+                session.socket.emit('output', '\n--- Docker failed, falling back to local execution ---\n');
+              }
+              
+              // Handle output from fallback
+              fallbackProcess.stdout.on('data', (data) => {
+                const output = data.toString();
+                console.log(`Fallback stdout from ${sessionId}:`, output);
+                
+                if (session.socket) {
+                  session.socket.emit('output', output);
+                }
+              });
+              
+              fallbackProcess.stderr.on('data', (data) => {
+                const errorOutput = data.toString();
+                console.error(`Fallback stderr from ${sessionId}:`, errorOutput);
+                
+                if (session.socket) {
+                  session.socket.emit('output', errorOutput);
+                }
+              });
+              
+              fallbackProcess.on('exit', (code) => {
+                console.log(`Fallback process ${sessionId} exited with code ${code}`);
+                
+                if (session.socket) {
+                  session.socket.emit('exit', { code });
+                }
+                
+                // Final cleanup
+                activeSessions.delete(sessionId);
+                fs.unlink(filepath).catch(err => console.error('Error deleting file:', err));
+                if (inputPath) {
+                  fs.unlink(inputPath).catch(err => console.error('Error deleting input file:', err));
+                }
+              });
+              
+              // If there's a socket connected and it sends input
+              if (session.socket) {
+                session.socket.on('input', (data) => {
+                  if (fallbackProcess.stdin) {
+                    fallbackProcess.stdin.write(data + '\n');
+                  }
+                });
+              }
+            }
+          } else {
+            // Normal cleanup when Docker worked fine
+            activeSessions.delete(sessionId);
             fs.unlink(filepath).catch(err => console.error('Error deleting file:', err));
             if (inputPath) {
               fs.unlink(inputPath).catch(err => console.error('Error deleting input file:', err));
             }
-          }, 1000);
+          }
         });
         
-        // If there's initial input, provide it
-        if (input) {
-          dockerProcess.stdin.write(input);
-        }
-        
-        // Return session ID to client
+        // Return session ID to client before we know if Docker works
+        // The client will connect with WebSocket and handle any errors
         return res.status(200).json({
           success: true,
           sessionId,
