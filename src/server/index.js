@@ -9,18 +9,25 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 const app = express();
-app.use(cors());
+// Enhanced CORS configuration for production
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(bodyParser.json());
 
 // Create HTTP server
 const server = http.createServer(app);
 
-// Initialize Socket.io
+// Initialize Socket.io with production-ready CORS settings
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST']
-  }
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
+  transports: ['websocket', 'polling'] // Ensure both transports are enabled
 });
 
 // Store active sessions
@@ -141,19 +148,87 @@ checkLocalCommands();
 // Handle WebSocket connections
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
+  
   const sessionId = socket.handshake.query.sessionId;
+  console.log('Session ID from client:', sessionId);
+  
+  // Immediately confirm the connection with the client
+  socket.emit('output', '\nServer connected! Starting execution...\n');
+  
+  // Handle ping from client (to check if server is responsive)
+  socket.on('ping', () => {
+    console.log('Received ping from client:', socket.id);
+    socket.emit('pong');
+    
+    // If there's a session but no process, let the client know
+    if (sessionId && activeSessions.has(sessionId)) {
+      const session = activeSessions.get(sessionId);
+      if (!session.dockerProcess || session.dockerProcess.exitCode !== null) {
+        socket.emit('output', '\nWARNING: Process appears to have exited or failed to start.\n');
+        socket.emit('exit', { code: -1 });
+      } else {
+        socket.emit('output', '\nProcess is still running, waiting for output...\n');
+      }
+    } else if (sessionId) {
+      socket.emit('output', '\nERROR: Session not found. Please try again.\n');
+      socket.emit('exit', { code: -1 });
+    }
+  });
   
   if (sessionId && activeSessions.has(sessionId)) {
+    console.log('Found active session:', sessionId);
     const session = activeSessions.get(sessionId);
     session.socket = socket;
     
-    // Handle input from client
+    // Let the client know we found their session
+    socket.emit('output', '\nSession found! Execution starting...\n');
+    
+    // Handle input from client - CRITICAL FIX FOR PYTHON INPUT
     socket.on('input', (data) => {
       if (session.dockerProcess && session.dockerProcess.stdin) {
-        session.dockerProcess.stdin.write(data + '\n');
-        console.log(`Input sent to container for session ${sessionId}: ${data}`);
+        // Add debugging
+        console.log(`Input received for session ${sessionId}: "${data}"`);
+        
+        try {
+          // Make sure input ends with newline
+          const input = data.endsWith('\n') ? data : data + '\n';
+          session.dockerProcess.stdin.write(input);
+          
+          console.log(`Input sent to process for session ${sessionId}`);
+          
+          // Send confirmation to client that input was processed
+          socket.emit('output', `\n`);  // Add an empty line after input
+          
+          // Set a timeout to check if we're getting a response
+          setTimeout(() => {
+            // If session still exists, the process hasn't exited
+            if (activeSessions.has(sessionId)) {
+              const currentSession = activeSessions.get(sessionId);
+              // Check if we've received any output since input was sent
+              if (currentSession && currentSession.lastOutput && 
+                  Date.now() - currentSession.lastOutput > 5000) {
+                socket.emit('output', '\nWaiting for response from Python...\n');
+              }
+            }
+          }, 5000);
+        } catch (err) {
+          console.error(`Error sending input to process ${sessionId}:`, err);
+          socket.emit('output', '\nError processing your input. Please try again.\n');
+        }
+      } else {
+        console.error(`Cannot send input - process stdin not available for session ${sessionId}`);
+        socket.emit('output', '\nERROR: Cannot send input to process.\n');
       }
     });
+    
+    // Set last activity timestamp
+    session.lastActivity = Date.now();
+    session.lastOutput = Date.now();
+    
+  } else if (sessionId) {
+    console.log('Session not found:', sessionId);
+    socket.emit('output', '\nERROR: Session not found or expired. Please run your code again.\n');
+    socket.emit('exit', { code: -1 });
   }
   
   socket.on('disconnect', () => {
@@ -197,6 +272,7 @@ function killDockerProcess(session) {
 const executeDirectly = async (language, filepath, inputPath, runCallback) => {
   const filename = path.basename(filepath);
   let cmd, args;
+  let timeout = 50000; // Default timeout 50 seconds
   
   // Prepare command based on language
   switch(language) {
@@ -206,7 +282,10 @@ const executeDirectly = async (language, filepath, inputPath, runCallback) => {
       break;
     case 'javascript':
       cmd = 'node';
-      args = [filepath];
+      // Add --max-old-space-size=256 to limit memory and prevent hanging
+      args = ['--max-old-space-size=256', '--no-warnings', filepath];
+      // JavaScript needs more time on free hosting
+      timeout = 55000; // 55 seconds for JavaScript
       break;
     default:
       runCallback({
@@ -223,14 +302,30 @@ const executeDirectly = async (language, filepath, inputPath, runCallback) => {
   try {
     // For non-interactive execution, use exec
     if (!inputPath) {
-      exec(`${cmd} ${args.join(' ')}`, (error, stdout, stderr) => {
+      // Add timeout to prevent hanging processes
+      const execOptions = {
+        timeout: timeout,
+        killSignal: 'SIGTERM'
+      };
+      
+      exec(`${cmd} ${args.join(' ')}`, execOptions, (error, stdout, stderr) => {
         if (error) {
-          runCallback({
-            success: false,
-            output: stdout || '',
-            error: stderr || error.message,
-            exitCode: error.code || -1
-          });
+          // Check if this is a timeout error
+          if (error.signal === 'SIGTERM') {
+            runCallback({
+              success: false,
+              output: stdout || '',
+              error: `Execution timed out after ${timeout/1000} seconds. Your code might have an infinite loop.`,
+              exitCode: 124
+            });
+          } else {
+            runCallback({
+              success: false,
+              output: stdout || '',
+              error: stderr || error.message,
+              exitCode: error.code || -1
+            });
+          }
         } else {
           runCallback({
             success: true,
@@ -317,12 +412,23 @@ app.post('/api/execute', async (req, res) => {
         
         // Start a local process for interactive execution
         // (This is a limited implementation since true interactivity is harder without Docker)
+        const localProcessOptions = { 
+          stdio: ['pipe', 'pipe', 'pipe'],
+          // Add timeout for JavaScript to prevent hanging
+          timeout: language === 'javascript' ? 55000 : 45000
+        };
+        
         const localProcess = spawn(
           language === 'python' ? 'python' : 
           language === 'javascript' ? 'node' : 'echo',
-          [filepath],
-          { stdio: ['pipe', 'pipe', 'pipe'] }
+          language === 'javascript' ? 
+            ['--max-old-space-size=256', '--no-warnings', filepath] : 
+            [filepath],
+          localProcessOptions
         );
+        
+        // After the local process is spawned, add this debug output:
+        console.log(`Local process started for session ${sessionId}`);
         
         // Store session info
         activeSessions.set(sessionId, {
@@ -340,7 +446,13 @@ app.post('/api/execute', async (req, res) => {
           // Send to client if socket is connected
           const session = activeSessions.get(sessionId);
           if (session && session.socket) {
+            console.log(`Sending stdout to client for session ${sessionId}`);
             session.socket.emit('output', output);
+            
+            // Update last output timestamp
+            session.lastOutput = Date.now();
+          } else {
+            console.log(`No socket connected yet for session ${sessionId}`);
           }
         });
         
@@ -683,6 +795,6 @@ app.post('/api/execute', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Docker execution server running on port ${PORT}`);
 }); 

@@ -2,11 +2,17 @@ import axios from 'axios';
 
 // Define a simple class for code execution service
 class ExecutionService {
-  // URL for the code execution API (Docker backend)
-  private apiUrl = 'http://localhost:3001/api/execute';
+  // for local 
+  // private apiUrl = 'http://localhost:3001/api/execute';
+  // Update URL for the code execution API to point to Render
+  private apiUrl = 'https://code-editor-jj0k.onrender.com/api/execute';
+  
+  // for local
+  // private fallbackApiUrl = 'http://localhost:3001/api/execute';
+  private fallbackApiUrl = 'https://code-editor-jj0k.onrender.com/api/execute'; // Same for now, can be changed if needed
 
   /**
-   * Execute code with optional input
+   * Execute Python code with optional input
    */
   async executeCode(
     code: string,
@@ -15,9 +21,7 @@ class ExecutionService {
     interactive: boolean = false
   ): Promise<ExecutionResult> {
     try {
-      console.log('Attempting to connect to API at:', this.apiUrl);
-      
-      const mappedLanguage = this.mapLanguage(language);
+      console.log('Connecting to execution service...');
       
       // Format input properly (make sure it ends with newline)
       let formattedInput = input;
@@ -25,26 +29,29 @@ class ExecutionService {
         formattedInput += '\n';
       }
       
-      // Prepare the request payload for Docker backend
+      // Prepare the request payload
       const payload = {
         code: code,
-        language: mappedLanguage,
+        language: 'python', // Always use Python
         input: formattedInput,
         interactive: interactive
       };
 
-      console.log('Executing code with payload:', payload);
+      console.log(`Executing Python code in ${interactive ? 'interactive' : 'regular'} mode`);
 
-      // Make the API request to our Docker backend with timeout
+      // Make the API request
       const response = await axios.post(this.apiUrl, payload, {
         timeout: 30000, // 30 second timeout
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
+      
       const result = response.data;
-
-      console.log('API response:', result);
 
       // For interactive mode, return the session ID
       if (interactive && result.sessionId) {
+        console.log('Interactive session started with ID:', result.sessionId);
         return {
           success: true,
           output: '',
@@ -66,49 +73,23 @@ class ExecutionService {
       };
     } catch (error) {
       // Handle errors
-      console.error('Code execution error:', error);
+      console.error('Python execution error:', error);
       
-      // Check if Docker is not installed or available
-      if (axios.isAxiosError(error) && error.code === 'ECONNREFUSED') {
+      // For timeout errors
+      if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
         return {
           success: false,
           output: '',
-          error: 'Cannot connect to the execution server. Please make sure the server is running.',
-          exitCode: -1,
-        };
-      }
-
-      // Timeout error
-      if (axios.isAxiosError(error) && error.code === 'ETIMEDOUT') {
-        return {
-          success: false,
-          output: '',
-          error: 'Connection to execution server timed out. The server may be overloaded.',
+          error: 'Execution timed out. Your code might be taking too long to run.',
           exitCode: -1,
         };
       }
       
-      // Other Axios errors
-      if (axios.isAxiosError(error) && error.response) {
-        return {
-          success: false,
-          output: '',
-          error: `API Error (${error.response.status}): ${JSON.stringify(error.response.data)}`,
-          exitCode: -1,
-        };
-      } else if (axios.isAxiosError(error)) {
-        return {
-          success: false,
-          output: '',
-          error: `Network Error: ${error.message}. Make sure the server is running.`,
-          exitCode: -1,
-        };
-      }
-      
+      // Connection errors
       return {
         success: false,
         output: '',
-        error: error instanceof Error ? error.message : 'Unknown execution error',
+        error: 'Connection to execution server failed. Please try again later.',
         exitCode: -1,
       };
     }
@@ -134,23 +115,6 @@ class ExecutionService {
     
     // Join the cleaned lines with single newlines
     return cleanedLines.join('\n');
-  }
-
-  /**
-   * Map editor language to Docker backend language
-   */
-  private mapLanguage(editorLanguage: string): string {
-    const languageMap: Record<string, string> = {
-      javascript: 'javascript',
-      typescript: 'javascript', // Use Node.js for TypeScript
-      python: 'python',
-      java: 'java',
-      csharp: 'csharp',
-      cpp: 'cpp',
-      c: 'c',
-    };
-
-    return languageMap[editorLanguage] || editorLanguage;
   }
 }
 

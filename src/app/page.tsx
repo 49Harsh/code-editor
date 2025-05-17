@@ -30,31 +30,13 @@ export default function Home() {
   // Helper function to check if code requires input
   const codeRequiresInput = (code: string): boolean => {
     // Check for Python input function
-    const hasPythonInput = code.includes('input(');
-    
-    // Check for JavaScript readline usage patterns
-    const hasJsReadline = code.includes('readline.question') || 
-                          code.includes('createInterface') && 
-                          code.includes('process.stdin');
-                          
-    return hasPythonInput || hasJsReadline;
+    return code.includes('input(');
   };
 
   // Update code when language changes
   useEffect(() => {
     setCode(getTemplateForLanguage(language));
   }, [language]);
-
-  // Handle language change
-  const handleLanguageChange = (newLanguage: string) => {
-    if (code !== getTemplateForLanguage(language)) {
-      if (confirm('Changing the language will reset your code. Continue?')) {
-        setLanguage(newLanguage);
-      }
-    } else {
-      setLanguage(newLanguage);
-    }
-  };
 
   // Handle code execution
   const handleRunCode = async () => {
@@ -65,6 +47,8 @@ export default function Home() {
     try {
       // Use interactive mode if enabled
       if (useInteractive) {
+        setOutput('Connecting to execution server...');
+        
         const result = await executionService.executeCode(code, language, '', true);
         
         if (result.success && result.sessionId) {
@@ -72,10 +56,15 @@ export default function Home() {
           // Output will be handled by the Terminal component via WebSocket
         } else {
           setOutput(`Error starting interactive session: ${result.error || 'Unknown error'}`);
+          // End running state if we couldn't get a session
+          setTimeout(() => {
+            setIsRunning(false);
+          }, 5000);
         }
       } 
       // Use regular mode
       else {
+        setOutput('Running code, please wait...');
         const result = await executionService.executeCode(code, language, '', false);
         
         let formattedOutput = '';
@@ -95,12 +84,16 @@ export default function Home() {
           }
         } else {
           formattedOutput = `Error: ${(result.error || 'Unknown error occurred').trim()}`;
+          console.error('Execution failed:', result);
         }
         
         setOutput(formattedOutput);
       }
     } catch (error) {
+      console.error('Execution error:', error);
       setOutput(`Execution error: ${error instanceof Error ? error.message : String(error)}`);
+      // Always end running state on error
+      setIsRunning(false);
     } finally {
       // Only set isRunning to false for non-interactive mode
       // For interactive mode, it stays running until the session ends
@@ -135,30 +128,10 @@ export default function Home() {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
             </svg>
-            CodeLab
+            Python CodeLab
           </h1>
           
           <div className="flex items-center space-x-4">
-            {/* Language Selector */}
-            <div className="relative">
-              <select
-                value={language}
-                onChange={(e) => handleLanguageChange(e.target.value)}
-                className="bg-white text-gray-800 rounded-md px-3 py-1 pr-8 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-300"
-              >
-                {availableLanguages.map((lang) => (
-                  <option key={lang.id} value={lang.id}>
-                    {lang.icon} {lang.name}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
-                <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                  <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
-                </svg>
-              </div>
-            </div>
-            
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
@@ -237,8 +210,8 @@ export default function Home() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <div>
-                    <p className="font-medium">Your code asks for user input. Enter values directly in the terminal when prompted.</p>
-                    <p className="text-sm mt-1">After running your code, click in the terminal window and type your input when prompted, then press Enter.</p>
+                    <p className="font-medium">Your code asks for user input. Enter values in the terminal when prompted.</p>
+                    <p className="text-sm mt-1">After running your code, click in the terminal window and type your input when you see the prompt.</p>
                   </div>
                 </div>
               </div>
@@ -252,8 +225,8 @@ export default function Home() {
                     <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                   </svg>
                   <div>
-                    <p className="font-medium">Warning: Your code asks for user input but interactive mode is disabled</p>
-                    <p className="text-sm mt-1">Please enable interactive mode to properly handle input in your code.</p>
+                    <p className="font-medium">Warning: Your code needs input but interactive mode is off</p>
+                    <p className="text-sm mt-1">Please enable interactive mode to allow input in your code.</p>
                   </div>
                 </div>
               </div>
@@ -298,7 +271,7 @@ export default function Home() {
       <footer className={`p-4 ${theme === 'vs-dark' ? 'bg-gray-800 text-gray-300' : 'bg-gray-200 text-gray-700'} mt-8`}>
         <div className="container mx-auto text-center text-sm">
           <p>
-            CodeLab - An interactive coding playground for young programmers.
+            Python CodeLab - An interactive coding playground for beginners.
           </p>
           <p className="mt-1">
             Built with Next.js and Monaco Editor.
