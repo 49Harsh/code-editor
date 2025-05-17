@@ -2,8 +2,8 @@ import axios from 'axios';
 
 // Define a simple class for code execution service
 class ExecutionService {
-  // URL for the code execution API
-  private apiUrl = 'https://emkc.org/api/v2/piston/execute';
+  // URL for the code execution API (Docker backend)
+  private apiUrl = 'http://localhost:3001/api/execute';
 
   /**
    * Execute code with optional input
@@ -11,9 +11,12 @@ class ExecutionService {
   async executeCode(
     code: string,
     language: string,
-    input: string = ''
+    input: string = '',
+    interactive: boolean = false
   ): Promise<ExecutionResult> {
     try {
+      console.log('Attempting to connect to API at:', this.apiUrl);
+      
       const mappedLanguage = this.mapLanguage(language);
       
       // Format input properly (make sure it ends with newline)
@@ -22,59 +25,82 @@ class ExecutionService {
         formattedInput += '\n';
       }
       
-      // Prepare the request payload
+      // Prepare the request payload for Docker backend
       const payload = {
+        code: code,
         language: mappedLanguage,
-        version: this.getLanguageVersion(mappedLanguage),
-        files: [
-          {
-            name: this.getFileName(mappedLanguage),
-            content: code,
-          },
-        ],
-        stdin: formattedInput,
-        args: [],
-        compile_timeout: 10000,
-        run_timeout: 5000,
+        input: formattedInput,
+        interactive: interactive
       };
 
       console.log('Executing code with payload:', payload);
 
-      // Make the API request
-      const response = await axios.post(this.apiUrl, payload);
+      // Make the API request to our Docker backend with timeout
+      const response = await axios.post(this.apiUrl, payload, {
+        timeout: 30000, // 30 second timeout
+      });
       const result = response.data;
 
-      // Check if it's an input-related error for Python
-      if (mappedLanguage === 'python3' && result.run.stderr && 
-          (result.run.stderr.includes('EOFError') || 
-           result.run.stderr.includes('EOF when reading a line'))) {
+      console.log('API response:', result);
+
+      // For interactive mode, return the session ID
+      if (interactive && result.sessionId) {
         return {
-          success: false,
-          output: result.run.stdout || '',
-          error: 'Input Error: The program expected more input than provided. Make sure to provide values for all input() calls.',
-          exitCode: result.run.code,
+          success: true,
+          output: '',
+          error: '',
+          exitCode: 0,
+          sessionId: result.sessionId
         };
       }
 
-      // Extract and clean the output
-      const cleanOutput = this.cleanOutputText(result.run.stdout || '');
-      const cleanError = this.cleanOutputText(result.run.stderr || '');
+      // For regular mode, extract and clean the output
+      const cleanOutput = this.cleanOutputText(result.output || '');
+      const cleanError = this.cleanOutputText(result.error || '');
 
       return {
-        success: true,
+        success: result.success,
         output: cleanOutput,
         error: cleanError,
-        exitCode: result.run.code,
+        exitCode: result.exitCode || 0,
       };
     } catch (error) {
       // Handle errors
       console.error('Code execution error:', error);
       
+      // Check if Docker is not installed or available
+      if (axios.isAxiosError(error) && error.code === 'ECONNREFUSED') {
+        return {
+          success: false,
+          output: '',
+          error: 'Cannot connect to the execution server. Please make sure the server is running.',
+          exitCode: -1,
+        };
+      }
+
+      // Timeout error
+      if (axios.isAxiosError(error) && error.code === 'ETIMEDOUT') {
+        return {
+          success: false,
+          output: '',
+          error: 'Connection to execution server timed out. The server may be overloaded.',
+          exitCode: -1,
+        };
+      }
+      
+      // Other Axios errors
       if (axios.isAxiosError(error) && error.response) {
         return {
           success: false,
           output: '',
           error: `API Error (${error.response.status}): ${JSON.stringify(error.response.data)}`,
+          exitCode: -1,
+        };
+      } else if (axios.isAxiosError(error)) {
+        return {
+          success: false,
+          output: '',
+          error: `Network Error: ${error.message}. Make sure the server is running.`,
           exitCode: -1,
         };
       }
@@ -111,68 +137,20 @@ class ExecutionService {
   }
 
   /**
-   * Map editor language to API language
+   * Map editor language to Docker backend language
    */
   private mapLanguage(editorLanguage: string): string {
     const languageMap: Record<string, string> = {
       javascript: 'javascript',
-      typescript: 'typescript',
-      python: 'python3',
+      typescript: 'javascript', // Use Node.js for TypeScript
+      python: 'python',
       java: 'java',
       csharp: 'csharp',
       cpp: 'cpp',
       c: 'c',
-      ruby: 'ruby',
-      go: 'go',
-      rust: 'rust',
-      php: 'php',
     };
 
     return languageMap[editorLanguage] || editorLanguage;
-  }
-  
-  /**
-   * Get appropriate file name for language
-   */
-  private getFileName(language: string): string {
-    const fileNameMap: Record<string, string> = {
-      nodejs: 'index.js',
-      javascript: 'script.js',
-      typescript: 'index.ts',
-      python3: 'main.py',
-      java: 'Main.java',
-      csharp: 'Program.cs',
-      cpp: 'main.cpp',
-      c: 'main.c',
-      ruby: 'main.rb',
-      go: 'main.go',
-      rust: 'main.rs',
-      php: 'index.php',
-    };
-    
-    return fileNameMap[language] || 'main';
-  }
-  
-  /**
-   * Get appropriate version for language
-   */
-  private getLanguageVersion(language: string): string {
-    const versionMap: Record<string, string> = {
-      nodejs: '18.15.0',
-      javascript: '18.15.0',
-      typescript: '5.0.3',
-      python3: '3.10.0',
-      java: '15.0.2',
-      csharp: '6.12.0',
-      cpp: '11.2.0',
-      c: '10.2.0',
-      ruby: '3.0.0',
-      go: '1.16.2',
-      rust: '1.68.2',
-      php: '8.2.3',
-    };
-    
-    return versionMap[language] || '*';
   }
 }
 
@@ -181,6 +159,7 @@ export interface ExecutionResult {
   output: string;
   error: string;
   exitCode: number;
+  sessionId?: string;
 }
 
 // Singleton instance

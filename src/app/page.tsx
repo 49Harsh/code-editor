@@ -22,10 +22,12 @@ export default function Home() {
   const [output, setOutput] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [input, setInput] = useState('');
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   
   // State for UI
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [inputVisible, setInputVisible] = useState(false);
+  const [useInteractive, setUseInteractive] = useState(true);
 
   // Update code when language changes
   useEffect(() => {
@@ -47,46 +49,72 @@ export default function Home() {
   const handleRunCode = async () => {
     setIsRunning(true);
     setOutput('');
+    setSessionId(undefined);
     
     try {
       const userInput = inputVisible ? input : '';
-      const result = await executionService.executeCode(code, language, userInput);
       
-      let formattedOutput = '';
-      
-      if (result.success) {
-        if (result.output) {
-          formattedOutput += result.output.trim();
+      // Use interactive mode if enabled
+      if (useInteractive) {
+        const result = await executionService.executeCode(code, language, userInput, true);
+        
+        if (result.success && result.sessionId) {
+          setSessionId(result.sessionId);
+          // Output will be handled by the Terminal component via WebSocket
+        } else {
+          setOutput(`Error starting interactive session: ${result.error || 'Unknown error'}`);
+        }
+      } 
+      // Use regular mode
+      else {
+        const result = await executionService.executeCode(code, language, userInput, false);
+        
+        let formattedOutput = '';
+        
+        if (result.success) {
+          if (result.output) {
+            formattedOutput += result.output.trim();
+          }
+          
+          if (result.error) {
+            formattedOutput += formattedOutput ? '\n\n' : '';
+            formattedOutput += `Error:\n${result.error.trim()}`;
+          }
+          
+          if (!formattedOutput) {
+            formattedOutput = '(No output)';
+          }
+        } else {
+          formattedOutput = `Error: ${(result.error || 'Unknown error occurred').trim()}`;
         }
         
-        if (result.error) {
-          formattedOutput += formattedOutput ? '\n\n' : '';
-          formattedOutput += `Error:\n${result.error.trim()}`;
-        }
-        
-        if (!formattedOutput) {
-          formattedOutput = '(No output)';
-        }
-      } else {
-        formattedOutput = `Error: ${(result.error || 'Unknown error occurred').trim()}`;
+        setOutput(formattedOutput);
       }
-      
-      setOutput(formattedOutput);
     } catch (error) {
       setOutput(`Execution error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      setIsRunning(false);
+      // Only set isRunning to false for non-interactive mode
+      // For interactive mode, it stays running until the session ends
+      if (!useInteractive) {
+        setIsRunning(false);
+      }
     }
+  };
+
+  // Handle terminal input
+  const handleTerminalInput = (userInput: string) => {
+    setInput(userInput);
   };
 
   // Handle theme toggle
   const toggleTheme = () => {
     setTheme(theme === 'vs-dark' ? 'vs-light' : 'vs-dark');
   };
-
-  // Handle terminal input
-  const handleTerminalInput = (userInput: string) => {
-    setInput(userInput);
+  
+  // Handle WebSocket session end
+  const handleSessionEnd = () => {
+    setIsRunning(false);
+    setSessionId(undefined);
   };
 
   return (
@@ -176,19 +204,34 @@ export default function Home() {
                 {isRunning ? 'Running...' : 'Run Code'}
               </button>
               
-              <div className="flex items-center">
-                <label htmlFor="show-input" className="flex items-center">
+              <div className="flex items-center space-x-4">
+                <label htmlFor="use-interactive" className="flex items-center">
                   <input
-                    id="show-input"
+                    id="use-interactive"
                     type="checkbox"
-                    checked={inputVisible}
-                    onChange={() => setInputVisible(!inputVisible)}
+                    checked={useInteractive}
+                    onChange={() => setUseInteractive(!useInteractive)}
                     className="mr-2"
                   />
                   <span className={`${theme === 'vs-dark' ? 'text-white' : 'text-gray-900'}`}>
-                    Enable Input
+                    Interactive Mode
                   </span>
                 </label>
+                
+                {!useInteractive && (
+                  <label htmlFor="show-input" className="flex items-center">
+                    <input
+                      id="show-input"
+                      type="checkbox"
+                      checked={inputVisible}
+                      onChange={() => setInputVisible(!inputVisible)}
+                      className="mr-2"
+                    />
+                    <span className={`${theme === 'vs-dark' ? 'text-white' : 'text-gray-900'}`}>
+                      Enable Input
+                    </span>
+                  </label>
+                )}
               </div>
             </div>
 
@@ -252,10 +295,13 @@ export default function Home() {
                   </div>
                 )}
               </div>
-              <Terminal
-                output={output}
-                isRunning={isRunning}
+              <Terminal 
+                output={output} 
+                input={input}
                 onInput={handleTerminalInput}
+                isRunning={isRunning}
+                sessionId={sessionId}
+                onSessionEnd={handleSessionEnd}
               />
             </div>
           </div>

@@ -8,16 +8,16 @@ export const codeTemplates: Record<string, string> = {
 # 2. Enter sample values in the input box for each input() call
 # For example: "John" and "25" (each on a separate line)
 
-name = input("What is your name? ")
-print(f"Hello, {name}! Welcome to CodeLab!")
+class Calculator:
+    @staticmethod
+    def add_numbers(num1, num2):
+        return num1 + num2
 
-# Try printing something else:
-print("Python is a fun language to learn!")
+# Example call with hardcoded values
+result = Calculator.add_numbers(10, 20)
 
-# Simple math calculation
-age = input("How old are you? ")
-years_to_100 = 100 - int(age)
-print(f"You will be 100 years old in {years_to_100} years!")`,
+print("The sum is:", result)
+`,
 
   javascript: `// Welcome to JavaScript Programming!
 // This is a simple program that prints messages to the console
